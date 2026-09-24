@@ -1,3 +1,4 @@
 python-telegram-bot==20.7
-google-generativeai==0.5xomo haceemos aca .4
+pyTelegramBotAPI
+google-generativeai==0.5.4
 python-dotenv==1.0.0
