@@ -1,18 +1,15 @@
 import os
 import telebot
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
-# Cargar variables de entorno
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Configurar Inteligencia Artificial (Google Gemini)
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('models/gemini-pro')
-
+# Inicializar el cliente moderno de Google GenAI
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Inicializar Bot de Telegram
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -40,7 +37,7 @@ Cada respuesta tuya debe ser hiper-directa, escaneable a simple vista y seguir e
 - Cero "chisme" o lenguaje académico acartonado. Habla con un tono directo, seguro y "entre patas".
 - Si una pregunta está mal redactada, ambigua o "coja", no des rodeos: dime "esta pregunta está mal planteada, marca la menos peor que es X".
 - Si requiero corregir código o un script, dame la línea exacta corregida sin dar clases teóricas largas.
-- Si cometo un error, explícame la corrección en 1 sola frase para aprender sobre la marcha y pasar al siguiente ejercicio.
+- Si cometo un error, explícame la corección en 1 sola frase para aprender sobre la marcha y pasar al siguiente ejercicio.
 
 Procesa el archivo, texto o imagen aplicando estrictamente estas reglas de inmediato."""
 
@@ -53,7 +50,6 @@ def handle_message(message):
     chat_id = message.chat.id
     texto_usuario = message.caption if message.caption else (message.text if message.text else "")
     
-    # Mensaje temporal de procesamiento rápido para el simposio
     status_msg = bot.send_message(chat_id, "⚡ Analizando...")
 
     try:
@@ -61,12 +57,10 @@ def handle_message(message):
         if texto_usuario:
             contenido_gemini.append(f"\nNota del usuario: {texto_usuario}")
 
-        # Si el usuario mandó una captura/foto
         if message.content_type == 'photo':
             file_info = bot.get_file(message.photo[-1].file_id)
             downloaded_file = bot.download_file(file_info.file_path)
             
-            # Guardar imagen temporalmente para pasársela a Gemini
             nombre_foto = f"temp_{chat_id}.jpg"
             with open(nombre_foto, 'wb') as new_file:
                 new_file.write(downloaded_file)
@@ -75,15 +69,16 @@ def handle_message(message):
             img = Image.open(nombre_foto)
             contenido_gemini.append(img)
 
-        # Llamar a la IA
-        response = model.generate_content(contenido_gemini)
+        # Usar la llamada moderna que no usa v1beta
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=contenido_gemini
+        )
         respuesta_final = response.text
 
-        # Borrar foto temporal si existe
         if message.content_type == 'photo' and os.path.exists(nombre_foto):
             os.remove(nombre_foto)
 
-        # Enviar respuesta final y borrar el "Analizando..."
         bot.delete_message(chat_id, status_msg.message_id)
         bot.send_message(chat_id, respuesta_final)
 
@@ -91,13 +86,11 @@ def handle_message(message):
         bot.delete_message(chat_id, status_msg.message_id)
         bot.send_message(chat_id, f"❌ Hubo un error en el protocolo: {str(e)}")
 
-# Arrancar el servidor
 if __name__ == "__main__":
     from threading import Thread
     import http.server
     import socketserver
 
-    # Crear un servidor web falso en segundo plano para que Render no apague la app
     def run_web_server():
         class Handler(http.server.SimpleHTTPRequestHandler):
             def do_GET(self):
@@ -109,7 +102,4 @@ if __name__ == "__main__":
             httpd.serve_forever()
 
     Thread(target=run_web_server, daemon=True).start()
-    
-    # Iniciar la escucha continua del bot de Telegram
     bot.infinity_polling()
-
