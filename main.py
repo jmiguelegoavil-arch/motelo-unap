@@ -1,5 +1,5 @@
 import os
-import telebot
+import teleb
 import google.generativeai as genai
 from flask import Flask
 
@@ -74,5 +74,6 @@ def home():
 # Para que no se caiga en Render
 if __name__ == "__main__":
     import threading
-    threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
+    print("=== BOT MOTELO INICIADO ===")
+    bot.infinity_polling()
