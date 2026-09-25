@@ -73,8 +73,9 @@ def home():
 
 # Para que no se caiga en Render
 if __name__ == "__main__":
-    import threading
+    import threading, time
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
     print("=== BOT MOTELO INICIADO ===")
     bot.remove_webhook()
+    time.sleep(3)
     bot.infinity_polling()
