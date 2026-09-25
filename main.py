@@ -76,4 +76,5 @@ if __name__ == "__main__":
     import threading
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
     print("=== BOT MOTELO INICIADO ===")
+    bot.remove_webhook()
     bot.infinity_polling()
