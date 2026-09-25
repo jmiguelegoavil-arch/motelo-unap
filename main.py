@@ -72,7 +72,9 @@ def handle_message(message):
         # Usar la llamada moderna que no usa v1beta
         response = client.models.generate_content(
             model='gemini-1.5-flash',
-            contents=contenido_gemini
+         contents=contenido_gemini
+)
+
         )
         respuesta_final = response.text
 
