@@ -11,7 +11,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Configurar Inteligencia Artificial (Google Gemini)
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro')
+model = genai.GenerativeModel('models/gemini-pro')
+
 
 # Inicializar Bot de Telegram
 bot = telebot.TeleBot(BOT_TOKEN)
