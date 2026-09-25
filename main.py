@@ -70,13 +70,11 @@ def handle_message(message):
             contenido_gemini.append(img)
 
         # Usar la llamada moderna que no usa v1beta
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-         contents=contenido_gemini
-)
-
-        )
-        respuesta_final = response.text
+    response = client.models.generate_content(
+        model='gemini-1.5-flash',
+        contents=contenido_gemini
+    )
+    respuesta_final = response.text
 
         if message.content_type == 'photo' and os.path.exists(nombre_foto):
             os.remove(nombre_foto)
