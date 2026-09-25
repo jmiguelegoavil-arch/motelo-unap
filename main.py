@@ -1,81 +1,73 @@
-import os
-import telebot
-import google.generativeai as genai
+import os, time, threading, base64
 from flask import Flask
+import telebot
+from groq import Groq
 
-# --- CONFIG ---
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_KEY)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GROQ_KEY = os.getenv("GROQ_API_KEY")
 
-app = Flask(__name__)
-bot = telebot.TeleBot(TOKEN)
+PROMPT = """A partir de este momento, activaremos el PROTOCOLO SUPER-EXPRESS:
+### 1. RECEPCIÓN E INTERPRETACIONAL
+- Te enviaré capturas de pantalla, archivos o textos cortos (muchas veces en inglés) acompañados de notas breves como "YA", "ESTA", "RÁPIDO", "MIRA ESTA".
+- Cero preámbulos, saludos o rodeos teóricos. Analiza la imagen o texto de inmediato, detecta el problema y da la solución.
+- Si el material está en inglés, analízalo pero responde SIEMPRE en español. Mantén los términos técnicos, sintaxis y comandos nativos intactos.
 
-PROMPT_MAESTRO = """
-Actúa como mi Instructor Técnico y Entrenador de Inteligencia Nivel Experto en Ciberseguridad, Redes, Sistemas y SPL (Splunk). Tu objetivo es prepararme intensivamente para dominar la sintaxis, comandos y resolución de casos de estudio a máxima velocidad.
+### 2. FORMATO OBLIGATORIO DE RESPUESTA
+- SOLUCIÓN DIRECTA: La clave o respuesta exacta
+- TRADUCCIÓN / CLAVE: Resumen en 1 frase si es en inglés
+- POR QUÉ: 1 línea directa
+- DÓNDE ESTÁ LA TRAMPA: Por qué fallan las otras
+- MARCADOR: Conteo de sesión
 
-Adoptaremos el siguiente MODO GUERRA DE ENTRENAMIENTO:
-
----
-### 1. DINÁMICA PRINCIPAL (PING-PONG DE PREGUNTAS)
-- Me lanzarás 1 pregunta de práctica a la vez en INGLÉS (como en los escenarios reales), con 4 opciones (A, B, C, D).
-- Temas a cubrir: SPL de Splunk (stats, timechart, eval, rex, lookup, transaction, subsearch), Linux, Redes y Ciberseguridad.
-- Yo te responderé únicamente con la letra seleccionada.
-- Tu respuesta inmediata DEBE seguir este formato estricto:
-  • ESTADO: [CORRECTO 🟢 / INCORRECTO 🔴]
-  • POR QUÉ: [Explicación en 1 sola línea directa]
-  • COMANDO / SINTAXIS: [El comando o regla técnica clave]
-  • TRAMPA: [Distractor principal de las otras opciones, si aplica]
-  • SIGUIENTE PREGUNTA: [Lanza la siguiente pregunta de inmediato]
-- Si fallo una pregunta, la siguiente que me lances será sobre ese mismo comando o tema hasta que lo domines al 100%.
-
----
-### 2. MODO INTERRUPCIÓN EXPRESS (RESOLUCIÓN DE CAPTURAS)
-- En cualquier momento del entrenamiento, si te envío una captura de pantalla, foto o texto de un ejercicio con palabras como "AQUÍ", "MIRA", "RÁPIDO":
-- Detén temporalmente las preguntas y responde de inmediato con el siguiente formato de 8 segundos:
-  • SOLUCIÓN: [Opción o comando correcto ✅]
-  • TRADUCCIÓN: [1 línea en español de lo que pide la imagen]
-  • CONCEPTO/COMANDO: [Comando o sintaxis exacta sin modificar]
-  • POR QUÉ: [Explicación táctica en 1 línea]
-- Tras responder la captura, vuelve automáticamente al flujo de preguntas.
-
----
 ### 3. REGLAS DE ORO
-- Mantiene intacta la sintaxis técnica en inglés (comandos como timechart, eval, rex, count, by, etc., no se traducen ni alteran).
-- Cero saludos, cero felicitaciones largas, cero "Muy bien hecho". Tono directo, militar y enfocado en el avance.
-- Si el dato, sintaxis o caso no está en tu base de conocimiento interna o es posterior a tu corte, ACUDE A INTERNET INMEDIATAMENTE, navega, verifica documentación oficial de Splunk, Cisco, Linux man pages, y entrega la respuesta actualizada citando la fuente. Nunca respondas "no tengo información".
-
-### 4. FALLBACK WEB OBLIGATORIO
-- Prioridad: 1) Tu base 2) Internet. Si fallas en base, ejecuta búsqueda web y responde con la sintaxis oficial más reciente.
-- IMPORTANTE: Tienes permiso y la obligación de navegar por internet si tu base de datos no tiene la respuesta.
-
-Si entendiste la dinámica unificada, responde únicamente:
-"🛡️ Simulador Express activado. Lanza la palabra 'INICIAR' para comenzar con la Pregunta 1 o envíame tu primera captura."
+- Tono directo, entre patas, cero chisme académico.
+- Si está mal planteada di "esta pregunta está mal planteada, marca la menos peor que es X".
+- Si es código, da la línea exacta corregida.
+- Si me equivoco, corrige en 1 frase.
 """
 
-model = genai.GenerativeModel('gemini-1.5-flash', system_instruction=PROMPT_MAESTRO)
-
-@bot.message_handler(func=lambda m: True)
-def responder(m):
-    try:
-        if m.text and m.text.upper().strip() == "INICIAR":
-            bot.reply_to(m, "🛡️ Simulador Express activado. Lanza la palabra 'INICIAR' para comenzar con la Pregunta 1 o envíame tu primera captura.")
-            return
-        prompt_final = m.text
-        resp = model.generate_content(prompt_final)
-        bot.reply_to(m, resp.text)
-    except Exception as e:
-        bot.reply_to(m, f"Error temporal, reintenta: {e}")
+bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__)
+contador = {"n": 0}
 
 @app.route('/')
-def home():
-    return "Bot Activo - Motelo UNAP"
+def home(): return "Capitan ON"
 
-# Para que no se caiga en Render
+@bot.message_handler(content_types=['photo'])
+def foto(m):
+    try:
+        client = Groq(api_key=GROQ_KEY)
+        f = bot.get_file(m.photo[-1].file_id)
+        d = bot.download_file(f.file_path)
+        b64 = base64.b64encode(d).decode()
+        contador["n"] += 1
+        r = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[
+                {"role":"system","content": PROMPT + f" Marcador: {contador['n']}"},
+                {"role":"user","content":[{"type":"text","text": m.caption or "YA"},{"type":"image_url","image_url":{"url":f"data:image/jpeg;base64,{b64}"}}]}
+            ]
+        )
+        bot.reply_to(m, r.choices[0].message.content)
+    except Exception as e:
+        bot.reply_to(m, f"Error: {e}")
+
+@bot.message_handler(func=lambda m: True)
+def texto(m):
+    try:
+        client = Groq(api_key=GROQ_KEY)
+        if "INICIAR" in m.text.upper():
+            contador["n"] = 0
+            bot.reply_to(m, "🫡 Capitán activado. Mándame la primera captura o ejercicio y le metemos mano.")
+            return
+        contador["n"] += 1
+        r = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content": PROMPT + f" Marcador: {contador['n']}"},{"role":"user","content": m.text}])
+        bot.reply_to(m, r.choices[0].message.content)
+    except Exception as e:
+        bot.reply_to(m, f"Error: {e}")
+
 if __name__ == "__main__":
-    import threading, time
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
-    print("=== BOT MOTELO INICIADO ===")
     bot.remove_webhook()
-    time.sleep(3)
+    time.sleep(2)
     bot.infinity_polling()
