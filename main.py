@@ -71,7 +71,7 @@ def handle_message(message):
 
         # Llamar a la IA con alineación perfecta
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=contenido_gemini
         )
         respuesta_final = response.text
