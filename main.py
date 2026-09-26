@@ -37,7 +37,7 @@ Cada respuesta tuya debe ser hiper-directa, escaneable a simple vista y seguir e
 - Cero "chisme" o lenguaje académico acartonado. Habla con un tono directo, seguro y "entre patas".
 - Si una pregunta está mal redactada, ambigua o "coja", no des rodeos: dime "esta pregunta está mal planteada, marca la menos peor que es X".
 - Si requiero corregir código o un script, dame la línea exacta corregida sin dar clases teóricas largas.
-- Si cometo un error, explícame la corección en 1 sola frase para aprender sobre la marcha y pasar al siguiente ejercicio.
+- Si cometo un error, explícame la corrección en 1 sola frase para aprender sobre la marcha y pasar al siguiente ejercicio.
 
 Procesa el archivo, texto o imagen aplicando estrictamente estas reglas de inmediato."""
 
@@ -69,12 +69,12 @@ def handle_message(message):
             img = Image.open(nombre_foto)
             contenido_gemini.append(img)
 
-        # Usar la llamada moderna que no usa v1beta
-    response = client.models.generate_content(
-        model='gemini-1.5-flash',
-        contents=contenido_gemini
-    )
-    respuesta_final = response.text
+        # Llamar a la IA con alineación perfecta
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=contenido_gemini
+        )
+        respuesta_final = response.text
 
         if message.content_type == 'photo' and os.path.exists(nombre_foto):
             os.remove(nombre_foto)
@@ -83,7 +83,10 @@ def handle_message(message):
         bot.send_message(chat_id, respuesta_final)
 
     except Exception as e:
-        bot.delete_message(chat_id, status_msg.message_id)
+        try:
+            bot.delete_message(chat_id, status_msg.message_id)
+        except:
+            pass
         bot.send_message(chat_id, f"❌ Hubo un error en el protocolo: {str(e)}")
 
 if __name__ == "__main__":
