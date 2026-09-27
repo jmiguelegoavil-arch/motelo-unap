@@ -1,7 +1,6 @@
-protobuf==3.20.3
-python-telegram-bot==20.7
-pyTelegramBotAPI
-google-genai
+pyTelegramBotAPI==4.12.0
+google-genai==0.1.1
 python-dotenv==1.0.0
-gunicorn
-Pillow
+gunicorn==21.2.0
+Pillow==10.2.0
+flask==3.0.2
