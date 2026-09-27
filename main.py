@@ -93,9 +93,9 @@ def handle_message(message):
             img = Image.open(nombre_foto)
             contenido_gemini.append(img)
 
-        # Usando 'gemini-2.5-flash', que es el modelo rápido y oficial de Google GenAI
+        # Usando 'gemini-3.8-flash', que es el modelo rápido y oficial de Google GenAI
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=contenido_gemini
         )
         respuesta_final = response.text
