@@ -2,6 +2,9 @@ import os
 import telebot
 from google import genai
 from dotenv import load_dotenv
+from flask import Flask
+from threading import Thread
+from PIL import Image
 
 load_dotenv()
 
@@ -14,6 +17,27 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 # Inicializar Bot de Telegram
 bot = telebot.TeleBot(BOT_TOKEN)
 
+# ==========================================
+# 1. SISTEMA WEB FLASK PARA EVITAR SUSPENSIÓN
+# ==========================================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "¡Tutor de bots UNAP Iquitos activo y corriendo! 🚀"
+
+def run_web_server():
+    # Render asigna automáticamente el puerto en la variable de entorno PORT
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+# Arrancar el servidor web en un hilo paralelo (Daemon) antes del bot
+Thread(target=run_web_server, daemon=True).start()
+print(">> Servidor de mantenimiento Flask iniciado correctamente.")
+
+# ==========================================
+# 2. PROMPT DEL SISTEMA (PROTOCOLO SUPER-EXPRESS)
+# ==========================================
 PROMPT_SISTEMA = """A partir de este momento, activaremos el PROTOCOLO SUPER-EXPRESS:
 
 ---
@@ -28,7 +52,7 @@ Cada respuesta tuya debe ser hiper-directa, escaneable a simple vista y seguir e
 
 • SOLUCIÓN DIRECTA: La clave o respuesta exacta (ej. "Opción C ✅" o "Comando: nmap -sV -p- 192.168.1.1 ✅").
 • TRADUCCIÓN / CLAVE (Si aplica): Si viene de un texto en inglés o largo, resúmeme la idea central en 1 frase.
-• POR QUÉ: Explica la regla, concepto o lógica aplicada en 1 sola línea directa.
+• POR QUÉ: Explica la regla, concept u lógica aplicada en 1 sola línea directa.
 • DÓNDE ESTÁ LA TRAMPA: Explica brevemente por qué fallan las otras opciones o cuál es el error común al ejecutar ese comando/fórmula.
 • MARCADOR: Conteo de la sesión para medir mi avance (ej. "Marcador: 1-0 🔥").
 
@@ -57,21 +81,21 @@ def handle_message(message):
         if texto_usuario:
             contenido_gemini.append(f"\nNota del usuario: {texto_usuario}")
 
+        nombre_foto = f"temp_{chat_id}.jpg"
+        
         if message.content_type == 'photo':
             file_info = bot.get_file(message.photo[-1].file_id)
             downloaded_file = bot.download_file(file_info.file_path)
             
-            nombre_foto = f"temp_{chat_id}.jpg"
             with open(nombre_foto, 'wb') as new_file:
                 new_file.write(downloaded_file)
                 
-            from PIL import Image
             img = Image.open(nombre_foto)
             contenido_gemini.append(img)
 
-        # Llamar a la IA con alineación perfecta
+        # Usando 'gemini-2.5-flash', que es el modelo rápido y oficial de Google GenAI
         response = client.models.generate_content(
-            model='gemini-3.8-flash',
+            model='gemini-2.5-flash',
             contents=contenido_gemini
         )
         respuesta_final = response.text
@@ -83,6 +107,10 @@ def handle_message(message):
         bot.send_message(chat_id, respuesta_final)
 
     except Exception as e:
+        if message.content_type == 'photo' and os.path.exists(nombre_foto):
+            try: os.remove(nombre_foto)
+            except: pass
+            
         try:
             bot.delete_message(chat_id, status_msg.message_id)
         except:
@@ -90,19 +118,7 @@ def handle_message(message):
         bot.send_message(chat_id, f"❌ Hubo un error en el protocolo: {str(e)}")
 
 if __name__ == "__main__":
-    from threading import Thread
-    import http.server
-    import socketserver
-
-    def run_web_server():
-        class Handler(http.server.SimpleHTTPRequestHandler):
-            def do_GET(self):
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(b"Bot activo")
-        port = int(os.getenv("PORT", 8080))
-        with socketserver.TCPServer(("", port), Handler) as httpd:
-            httpd.serve_forever()
-
-    Thread(target=run_web_server, daemon=True).start()
+    print(">> Bot escuchando peticiones de Telegram...")
+    # infinity_polling asegura que el bot intente reconectarse si pierde internet momentáneamente
     bot.infinity_polling()
+
