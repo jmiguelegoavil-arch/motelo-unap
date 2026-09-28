@@ -1,9 +1,14 @@
 import os
+import time
+import logging
+from io import BytesIO
+from threading import Thread
+
 import telebot
-from google import genai
 from dotenv import load_dotenv
 from flask import Flask
-from threading import Thread
+from google import genai
+from google.genai import errors, types
 from PIL import Image
 
 load_dotenv()
@@ -11,32 +16,35 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Inicializar el cliente moderno de Google GenAI
-client = genai.Client(api_key=GEMINI_API_KEY)
+# Modelo principal y respaldos (se pueden cambiar desde Render sin tocar el código)
+MODELO_PRINCIPAL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+MODELOS_RESPALDO = os.getenv("GEMINI_FALLBACKS", "gemini-2.5-flash,gemini-2.5-flash-lite").split(",")
+MODELOS = [MODELO_PRINCIPAL] + [m.strip() for m in MODELOS_RESPALDO if m.strip()]
 
-# Inicializar Bot de Telegram
-bot = telebot.TeleBot(BOT_TOKEN)
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("bot")
+
+client = genai.Client(api_key=GEMINI_API_KEY)
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
 
 # ==========================================
-# 1. SISTEMA WEB FLASK PARA EVITAR SUSPENSIÓN
+# 1. SERVIDOR FLASK (para que Render no lo suspenda)
 # ==========================================
 app = Flask(__name__)
 
-@app.route('/')
+@app.route("/")
 def home():
     return "¡Tutor de bots UNAP Iquitos activo y corriendo! 🚀"
 
 def run_web_server():
-    # Render asigna automáticamente el puerto en la variable de entorno PORT
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
-# Arrancar el servidor web en un hilo paralelo (Daemon) antes del bot
 Thread(target=run_web_server, daemon=True).start()
 print(">> Servidor de mantenimiento Flask iniciado correctamente.")
 
 # ==========================================
-# 2. PROMPT DEL SISTEMA (PROTOCOLO SUPER-EXPRESS)
+# 2. PROMPT DEL SISTEMA
 # ==========================================
 PROMPT_SISTEMA = """A partir de este momento, activaremos el PROTOCOLO SUPER-EXPRESS:
 
@@ -50,11 +58,11 @@ PROMPT_SISTEMA = """A partir de este momento, activaremos el PROTOCOLO SUPER-EXP
 ### 2. FORMATO OBLIGATORIO DE RESPUESTA
 Cada respuesta tuya debe ser hiper-directa, escaneable a simple vista y seguir esta estructura exacta:
 
-• SOLUCIÓN DIRECTA: La clave o respuesta exacta (ej. "Opción C ✅" o "Comando: nmap -sV -p- 192.168.1.1 ✅").
-• TRADUCCIÓN / CLAVE (Si aplica): Si viene de un texto en inglés o largo, resúmeme la idea central en 1 frase.
-• POR QUÉ: Explica la regla, concept u lógica aplicada en 1 sola línea directa.
-• DÓNDE ESTÁ LA TRAMPA: Explica brevemente por qué fallan las otras opciones o cuál es el error común al ejecutar ese comando/fórmula.
-• MARCADOR: Conteo de la sesión para medir mi avance (ej. "Marcador: 1-0 🔥").
+- SOLUCIÓN DIRECTA: La clave o respuesta exacta (ej. "Opción C ✅" o "Comando: nmap -sV -p- 192.168.1.1 ✅").
+- TRADUCCIÓN / CLAVE (Si aplica): Si viene de un texto en inglés o largo, resúmeme la idea central en 1 frase.
+- POR QUÉ: Explica la regla, concept u lógica aplicada en 1 sola línea directa.
+- DÓNDE ESTÁ LA TRAMPA: Explica brevemente por qué fallan las otras opciones o cuál es el error común al ejecutar ese comando/fórmula.
+- MARCADOR: Conteo de la sesión para medir mi avance (ej. "Marcador: 1-0 🔥").
 
 ---
 ### 3. REGLAS DE ORO
@@ -65,60 +73,82 @@ Cada respuesta tuya debe ser hiper-directa, escaneable a simple vista y seguir e
 
 Procesa el archivo, texto o imagen aplicando estrictamente estas reglas de inmediato."""
 
-@bot.message_handler(commands=['start', 'help'])
+# ==========================================
+# 3. LLAMADA A GEMINI CON REINTENTOS Y RESPALDO
+# ==========================================
+CODIGOS_REINTENTABLES = (429, 500, 502, 503, 504)
+
+def consultar_gemini(contenido, intentos_por_modelo=3):
+    config = types.GenerateContentConfig(system_instruction=PROMPT_SISTEMA)
+
+    for modelo in MODELOS:
+        for intento in range(intentos_por_modelo):
+            try:
+                r = client.models.generate_content(
+                    model=modelo,
+                    contents=contenido,
+                    config=config,
+                )
+                if r.text:
+                    return r.text
+                log.warning("Respuesta vacía de %s", modelo)
+                break  # pasar al siguiente modelo
+            except errors.APIError as e:
+                log.warning("%s falló (intento %d): %s %s", modelo, intento + 1, e.code, e.message)
+                if e.code in CODIGOS_REINTENTABLES:
+                    time.sleep(2 ** intento)  # 1s, 2s, 4s
+                    continue
+                if e.code == 404:
+                    break  # el modelo no existe, pasar al siguiente
+                raise
+    return None
+
+# ==========================================
+# 4. HANDLERS
+# ==========================================
+@bot.message_handler(commands=["start", "help"])
 def send_welcome(message):
     bot.reply_to(message, "🫡 Capitán activado. Mándame la primera captura o ejercicio y le metemos mano.")
 
-@bot.message_handler(content_types=['text', 'photo'])
+@bot.message_handler(content_types=["text", "photo"])
 def handle_message(message):
     chat_id = message.chat.id
-    texto_usuario = message.caption if message.caption else (message.text if message.text else "")
-    
+    texto_usuario = message.caption or message.text or ""
     status_msg = bot.send_message(chat_id, "⚡ Analizando...")
 
     try:
-        contenido_gemini = [PROMPT_SISTEMA]
+        contenido = []
         if texto_usuario:
-            contenido_gemini.append(f"\nNota del usuario: {texto_usuario}")
+            contenido.append(f"Nota del usuario: {texto_usuario}")
 
-        nombre_foto = f"temp_{chat_id}.jpg"
-        
-        if message.content_type == 'photo':
+        if message.content_type == "photo":
             file_info = bot.get_file(message.photo[-1].file_id)
-            downloaded_file = bot.download_file(file_info.file_path)
-            
-            with open(nombre_foto, 'wb') as new_file:
-                new_file.write(downloaded_file)
-                
-            img = Image.open(nombre_foto)
-            contenido_gemini.append(img)
+            datos = bot.download_file(file_info.file_path)
+            img = Image.open(BytesIO(datos))  # en memoria, sin archivos temporales
+            img.load()
+            contenido.append(img)
 
-        # Usando 'gemini-3.8-flash', que es el modelo rápido y oficial de Google GenAI
-        response = client.models.generate_content(
-            model='gemini-3.8-flash',
-            contents=contenido_gemini
-        )
-        respuesta_final = response.text
+        if not contenido:
+            contenido.append("Analiza y responde.")
 
-        if message.content_type == 'photo' and os.path.exists(nombre_foto):
-            os.remove(nombre_foto)
+        respuesta = consultar_gemini(contenido)
 
-        bot.delete_message(chat_id, status_msg.message_id)
-        bot.send_message(chat_id, respuesta_final)
+        if respuesta is None:
+            respuesta = "⚠️ Gemini está saturado en este momento. Reenvíame la captura en unos segundos."
 
     except Exception as e:
-        if message.content_type == 'photo' and os.path.exists(nombre_foto):
-            try: os.remove(nombre_foto)
-            except: pass
-            
-        try:
-            bot.delete_message(chat_id, status_msg.message_id)
-        except:
-            pass
-        bot.send_message(chat_id, f"❌ Hubo un error en el protocolo: {str(e)}")
+        log.exception("Error inesperado")
+        respuesta = "❌ Algo falló procesando eso. Reenvíamelo en unos segundos."
+
+    try:
+        bot.delete_message(chat_id, status_msg.message_id)
+    except Exception:
+        pass
+
+    # Telegram limita a 4096 caracteres por mensaje
+    for i in range(0, len(respuesta), 4000):
+        bot.send_message(chat_id, respuesta[i:i + 4000])
 
 if __name__ == "__main__":
     print(">> Bot escuchando peticiones de Telegram...")
-    # infinity_polling asegura que el bot intente reconectarse si pierde internet momentáneamente
-    bot.infinity_polling()
-
+    bot.infinity_polling(skip_pending=True)
